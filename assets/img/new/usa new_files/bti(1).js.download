@@ -1,0 +1,232 @@
+;(function(w, d) {
+	var btm = (w.btm = w.btm || {})
+	btm.data = btm.data || {}
+
+	var createElement = function(htmlTag, src) {
+		var tag = d.getElementsByTagName(htmlTag)[0]
+		var element = d.createElement(htmlTag)
+		element.async = 1
+		element.src = src
+		tag.parentNode.insertBefore(element, tag)
+	}
+	
+	var addEventListener = function(object, eventName, handler, captureFirst) {
+		if (object.addEventListener) {
+			object.addEventListener(eventName, handler, !!captureFirst)
+		} else if (object.attachEvent) {
+			object.attachEvent("on" + eventName, handler)
+		}
+	}
+
+	var onPostMessage = function(message) {
+		if (typeof message === "object" && typeof message.data === "object" && message.data.hasOwnProperty("method")) {
+			var object = message["data"]
+			switch (object["method"]) {
+				case "onEventIsActive":
+					onEventIsActive(object["value"])
+					break
+				default:
+					break
+			}
+		}
+	}
+
+	/*
+	* Recursively merge properties of two objects 
+	*/
+	function mergeRecursive(obj1, obj2) {
+
+		for (var p in obj2) {
+			try {
+				// Property in destination object set; update its value.
+				if ( obj2[p].constructor==Object ) {
+					obj1[p] = mergeRecursive(obj1[p], obj2[p]);
+				} else {
+					obj1[p] = obj2[p];
+				}
+			} catch(e) {
+				// Property in destination object not set; create it and set its value.
+				obj1[p] = obj2[p];
+
+			}
+  	}
+
+  	return obj1;
+	}
+
+	var renderScript = function(service) {
+    if (service === 'analytics') {
+      !(function(s, u, f) {
+        if (!!w.ba) return
+        f = w.ba = function() {
+          ;(f.queue = f.queue || []).push(arguments)
+        }
+        createElement(s, u)
+      })("script", "https://mnjura.com/assets/analytics/js/blish-analytic.js")
+      ba("init", "418438fd-bf5d-41e0-af5d-5ca99c2023c2")
+      ba("sendPageview")
+    } else {
+      
+createElement("script", "https://mnjura.com/assets/recs/js/_brc.js")
+    }
+	}
+
+	var onEventIsActive = function(dataObj) {
+		if (
+			dataObj 
+			&& typeof dataObj === "object"
+			&& typeof window.ba === "function"
+			&& window.ba 
+		) {
+			var dataFields = dataObj.fields || null
+			window.ba('sendCustomEvent', {
+				type: dataObj.type, 
+				customField: dataFields || null
+			})
+		}
+	}
+
+    var watchCmpIfrLoaded = function(callback) {
+        try {
+            if (!w.btm.data.cmp) w.btm.data.cmp = {}
+            var iframeLoaded = false
+            Object.defineProperty(w.btm.data.cmp, 'iframeLoaded', {
+                get: function() {
+                    return iframeLoaded
+                },
+                set: function (value) {
+                    iframeLoaded = value
+                    if (typeof callback === 'function' && value === true) {
+                        callback()
+                        callback = undefined
+                    }
+                }
+            });
+        } catch (e) { console.error('error : ',e) }
+    }
+    
+	var renderEvents = function() {
+		var events = []
+
+		var hasCmpService = events.some(function(event) {
+			return event.service === "cmp" || false
+		})
+
+		if (!hasCmpService)  {
+			registerEvents(events)
+		} else {
+			addEventListener(window, 'message', onPostMessage)
+			watchCmpIfrLoaded(function() { // ถ้ามี event service ที่เป็น cmp จะต้องรอ callback จาก iframe onloaded ก่อน
+				registerEvents(events)
+			})
+		}
+	}
+
+	var registerEvents = function(events) {
+		var ifrId = document.getElementById('bCmpIfr')
+
+		for (obj in events) {
+			if (events.hasOwnProperty(obj)) {
+				let dataObj = events[obj]
+
+				if (dataObj && dataObj.hasOwnProperty('event')) { // check events object มี property "event" หรือไม่
+					switch (dataObj.event) {
+						case 'load':
+							console.log('--register event load--')
+							if (dataObj.service === "cmp") onEventIsActive(dataObj)
+							break;
+						case 'click':
+							console.log('--register event click--')
+							if (dataObj.hasOwnProperty('binding') && dataObj.binding.hasOwnProperty('id')) {
+								if (dataObj.service === "cmp") {
+									try {
+										ifrId.contentWindow.postMessage({ method: 'registerEvent', data: dataObj }, '*')
+									} catch (error) {
+										console.error('error : ',error)
+									}
+								} else {
+									let elm = document.getElementById(dataObj.binding.id)
+									if (elm) {
+										addEventListener(elm, dataObj.event, function() {
+											onEventIsActive(dataObj)
+										})
+									}
+								}
+							}
+							break;
+						default:
+							break;
+					}
+				}
+			}
+		}
+	}
+
+	var bidRegistered = function(bid) {
+		if (bid && typeof bid === 'string' && btm.data) {
+			mergeRecursive(btm.data, { 
+				_bid: bid,
+				ba: { loaded: true } 
+			})
+
+			if (!btm._allLoaded) {
+				createElement("script", "https://mnjura.com/btm/bti.js?sid=418438fd-bf5d-41e0-af5d-5ca99c2023c2&bid="+bid)
+				mergeRecursive(btm, { _allLoaded: true })
+			}
+
+			return true
+		}
+		return false
+	}
+
+	var updateBtm = function(args) {
+		if (args && typeof args === 'object' && btm.data) {
+			mergeRecursive(btm.data, args)
+		}
+	}
+
+	var updateCmp = function(args) {
+		if (args &&  typeof args === 'object' && btm.data) {
+			mergeRecursive(btm.data, { cmp: args })
+		}
+	}
+
+	if (!btm._registered) {
+		btm._registered = true
+		btm._allLoaded = false
+		btm.data = {
+			_siteId: "418438fd-bf5d-41e0-af5d-5ca99c2023c2",
+			_bid: '',
+			ba: {
+				loaded: false
+			},
+			set: function() {
+				var allowFunction = {
+					"bidRegistered": bidRegistered,
+					"updateCmp": updateCmp,
+					"updateBtm": updateBtm
+				}
+	
+				var args = arguments[0]
+				if (args) {
+					var fnName = args[0]
+					var fnArgs = Array.from(args).slice(1)
+	
+					if (fnName in allowFunction) {
+						return allowFunction[fnName].apply(this, fnArgs)
+					} else {
+						console.warn("can't read function " + fnName)
+						return false
+					}
+				}
+				return false
+			}
+		}
+
+		renderScript('analytics') // bti 1st load
+	} else {
+		renderScript() // bti 2nd load
+		renderEvents()
+	}
+
+})(window, document)
